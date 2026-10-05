@@ -4,9 +4,11 @@ from flask import Flask
 from db import init_db
 from schedule.schema import SCHEMA as SCHEDULE_SCHEMA
 from bookings.schema import SCHEMA as BOOKINGS_SCHEMA
+from schedule.routes import schedule_bp
 
 app = Flask(__name__)
 init_db([SCHEDULE_SCHEMA, BOOKINGS_SCHEMA])
+app.register_blueprint(schedule_bp)
 
 
 @app.route("/")
