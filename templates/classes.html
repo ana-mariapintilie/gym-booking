@@ -13,7 +13,7 @@
 
   <table border="1" cellpadding="6">
     <tr>
-      <th>Class</th><th>Instructor</th><th>Starts</th><th>Minutes</th><th>Capacity</th>
+      <th>Class</th><th>Instructor</th><th>Starts</th><th>Minutes</th><th>Capacity</th><th>Bookings</th>
     </tr>
     {% for c in classes %}
       <tr>
@@ -22,9 +22,10 @@
         <td>{{ c.starts_at }}</td>
         <td>{{ c.duration_minutes }}</td>
         <td>{{ c.capacity }}</td>
+        <td><a href="/classes/{{ c.id }}/bookings">View</a></td>
       </tr>
     {% else %}
-      <tr><td colspan="5">No classes yet.</td></tr>
+      <tr><td colspan="6">No classes yet.</td></tr>
     {% endfor %}
   </table>
 

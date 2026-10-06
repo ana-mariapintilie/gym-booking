@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Bookings</title>
+</head>
+<body>
+  <p><a href="/classes">← Back to classes</a></p>
+  <h1>Bookings for class #{{ class_id }}</h1>
+
+  {% if error %}
+    <p style="color: red;">{{ error }}</p>
+  {% endif %}
+
+  <table border="1" cellpadding="6">
+    <tr>
+      <th>Member</th><th>Email</th><th>Status</th><th>Booked at</th><th></th>
+    </tr>
+    {% for b in bookings %}
+      <tr>
+        <td>{{ b.member_name }}</td>
+        <td>{{ b.member_email }}</td>
+        <td>{{ b.status }}</td>
+        <td>{{ b.created_at }}</td>
+        <td>
+          {% if b.status != "cancelled" %}
+            <form method="post" action="/classes/{{ class_id }}/bookings/{{ b.id }}/cancel">
+              <button type="submit">Cancel</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5">No bookings yet.</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Book a spot</h2>
+  <form method="post" action="/classes/{{ class_id }}/bookings">
+    <input name="member_name" placeholder="Your name" required>
+    <input type="email" name="member_email" placeholder="Your email" required>
+    <button type="submit">Book</button>
+  </form>
+</body>
+</html>
