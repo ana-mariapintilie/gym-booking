@@ -23,3 +23,11 @@ Context: A booking must belong to a class, and members can be confirmed, waitlis
 Decision: bookings.class_id references classes.id with a foreign key, and a single status column (confirmed / waitlisted / cancelled) holds the booking state. Waitlist order comes from created_at.
 Alternatives considered: A separate waitlist table. Rejected because moving someone up would mean deleting from one table and inserting into another; with one status column it is a single UPDATE. A position number column was rejected because every cancellation would require renumbering.
 Consequences: The foreign key keeps data consistent now, but it ties the two tables to one database; when the domains become separate services in Assignment 2, this constraint will have to be replaced by checking the class through the schedule service.
+
+## 4. Unit testing the service layer with pytest on a temporary database
+Date: 2026-10-07
+Status: Decided
+Context: The assignment requires at least 70% coverage of core business logic. In my app the logic lives in schedule/service.py and bookings/service.py; the routes only read forms and show templates.
+Decision: Test the service functions directly with pytest, giving every test its own empty SQLite file in a temporary folder (fixture in tests/conftest.py). Measure coverage with pytest-cov on schedule, bookings and db, and exclude routes.py through .coveragerc.
+Alternatives considered: Testing through the web pages with Flask's test client, rejected because most of what it checks is HTML and redirects (framework glue), not my rules. Mocking the database, rejected because the waitlist order is decided inside the SQL query (ORDER BY created_at), so a mock would skip the part most likely to be wrong.
+Consequences: The capacity, duplicate and waitlist rules are covered well, but the routes and templates are only tested by hand, so a typo in a form field name would not be caught by the tests.
