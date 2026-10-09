@@ -1,7 +1,9 @@
+import os
 from datetime import datetime
 
 from db import get_connection
 
+SEED_FILE = os.path.join(os.path.dirname(__file__), "seed.sql")
 
 def validate_class(name, instructor, starts_at, duration_minutes, capacity):
     if not name.strip():
@@ -48,3 +50,13 @@ def get_class_capacity(class_id):
     if row is None:
         return None
     return row["capacity"]
+
+def seed_classes_if_empty():
+    conn = get_connection()
+    count = conn.execute("SELECT COUNT(*) FROM classes").fetchone()[0]
+    if count == 0:
+        with open(SEED_FILE) as seed_file:
+            conn.executescript(seed_file.read())
+        conn.commit()
+    conn.close()
+    return count == 0

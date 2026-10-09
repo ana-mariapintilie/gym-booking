@@ -60,3 +60,20 @@ def test_get_class_capacity():
 
 def test_get_class_capacity_of_missing_class_is_none():
     assert service.get_class_capacity(999) is None
+
+
+def test_seed_fills_empty_classes_table():
+    assert service.seed_classes_if_empty() is True
+    assert len(service.list_classes()) == 4
+
+
+def test_seed_runs_only_once():
+    service.seed_classes_if_empty()
+    assert service.seed_classes_if_empty() is False
+    assert len(service.list_classes()) == 4
+
+
+def test_seed_is_skipped_when_classes_already_exist():
+    make_class()
+    assert service.seed_classes_if_empty() is False
+    assert len(service.list_classes()) == 1
