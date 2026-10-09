@@ -31,3 +31,11 @@ Context: The assignment requires at least 70% coverage of core business logic. I
 Decision: Test the service functions directly with pytest, giving every test its own empty SQLite file in a temporary folder (fixture in tests/conftest.py). Measure coverage with pytest-cov on schedule, bookings and db, and exclude routes.py through .coveragerc.
 Alternatives considered: Testing through the web pages with Flask's test client, rejected because most of what it checks is HTML and redirects (framework glue), not my rules. Mocking the database, rejected because the waitlist order is decided inside the SQL query (ORDER BY created_at), so a mock would skip the part most likely to be wrong.
 Consequences: The capacity, duplicate and waitlist rules are covered well, but the routes and templates are only tested by hand, so a typo in a form field name would not be caught by the tests.
+
+## 5. Not building login or user accounts
+Date: 2026-10-09
+Status: Decided
+Context: Right now anyone who opens the app can create classes, book a spot and cancel any booking. A real gym would want staff and members to log in.
+Decision: I didn't build authentication on purpose. Members identify themselves with a name and email when booking, and the classes page is not protected.
+Alternatives considered: Login with Flask-Login, a users table and hashed passwords. Rejected because it would be a third domain with its own data, add dependencies, and require handling passwords safely, which is more than the two domains this assignment is about and would take time away from tests and documentation.
+Consequences: Anyone with access could cancel someone else's booking or add classes, so the app should only run on the gym's internal network for now. Authentication could become its own service in Assignment 2, and bookings already store the member's email, which a future user account could link to.
