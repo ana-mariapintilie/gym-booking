@@ -105,6 +105,18 @@ docker compose up -d --build
 python -m pytest tests/integration -v      # 5 passed
 ```
 
+## CI and images
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+| Job | What it does |
+|---|---|
+| `test` (per service) | ruff, then the unit tests against a SQL Server service container; fails under 70% coverage |
+| `integration` | `docker compose up --build --wait`, then `tests/integration` against the running stack |
+| `images` (per service) | Builds `services/<name>/Dockerfile` every time; only on `main` it logs in to GHCR and pushes `ghcr.io/ana-mariapintilie/gym-booking-<name>:<commit SHA>` |
+
+`images` waits for both test jobs, so a broken commit never gets an image. Pull requests and other branches only build, so nothing is published from them.
+
 ## Project structure
 
 ```
