@@ -11,6 +11,8 @@ Built with Python 3.13 and Flask, split into two services that each own a SQL Se
 | Schedule | `services/schedule/` | Create and list classes (name, instructor, room, start time, duration, capacity) | `schedule` → table `classes` | 8001 |
 | Bookings | `services/bookings/` | Book a spot, waitlist when full, cancel, promote the next waitlisted member | `bookings` → table `bookings` | 8002 |
 
+The split into two services, each with its own Dockerfile, requirements and migrations, was made in commit [b23ac50](https://github.com/ana-mariapintilie/gym-booking/commit/b23ac506db2e00fbcc02724819165dd4765a3bc2).
+
 **The seam:** bookings never reads the `classes` table. Server-side, it calls `GET {SCHEDULE_URL}/api/classes/<id>` (in `services/bookings/app/schedule_client.py`) to get a class's capacity before booking, and its name and time for the bookings page.
 
 **When schedule is down or slow** (2 s timeout, `SCHEDULE_TIMEOUT_SECONDS`):
