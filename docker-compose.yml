@@ -1,0 +1,72 @@
+name: gym-booking
+
+# Local development only: the passwords below are defaults so that
+# `docker compose up` works from a clean clone. Override them with
+# environment variables (or a .env file, which is gitignored) anywhere else.
+x-sql-image: &sql-image
+  image: mcr.microsoft.com/mssql/server:2022-latest
+  platform: linux/amd64
+
+services:
+  mssql:
+    <<: *sql-image
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-GymBooking_Dev_2026}
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -Q "SELECT 1" -o /dev/null
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
+
+  # Creates one database and one login per service, then exits.
+  db-init:
+    <<: *sql-image
+    depends_on:
+      mssql:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-GymBooking_Dev_2026}
+      SCHEDULE_PWD: ${SCHEDULE_DB_PASSWORD:-ScheduleDev2026}
+      BOOKINGS_PWD: ${BOOKINGS_DB_PASSWORD:-BookingsDev2026}
+    volumes:
+      - ./db/init.sql:/init.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -i /init.sql
+    restart: "no"
+
+  schedule:
+    build: ./services/schedule
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: mssql://schedule_user:${SCHEDULE_DB_PASSWORD:-ScheduleDev2026}@mssql:1433/schedule
+      BOOKINGS_PUBLIC_URL: http://localhost:8002
+    ports:
+      - "8001:8000"
+
+  # Deliberately does not wait for schedule: bookings must start and degrade
+  # gracefully on its own when schedule is down.
+  bookings:
+    build: ./services/bookings
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: mssql://bookings_user:${BOOKINGS_DB_PASSWORD:-BookingsDev2026}@mssql:1433/bookings
+      SCHEDULE_URL: http://schedule:8000
+      SCHEDULE_PUBLIC_URL: http://localhost:8001
+      SCHEDULE_TIMEOUT_SECONDS: "2"
+    ports:
+      - "8002:8000"
+
+volumes:
+  mssql-data:
