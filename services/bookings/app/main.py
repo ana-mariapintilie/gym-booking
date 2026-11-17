@@ -80,7 +80,7 @@ def book_route(class_id):
 @app.post("/classes/<int:class_id>/bookings/<int:booking_id>/cancel")
 def cancel_route(class_id, booking_id):
     try:
-        service.cancel_booking(booking_id)
+        service.cancel_booking(booking_id, class_id)
     except ValueError as error:
         return render_page(class_id, error=str(error), status_code=400)
     return redirect(url_for("bookings_page", class_id=class_id))

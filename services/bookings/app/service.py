@@ -56,13 +56,15 @@ def book_class(class_id, member_name, member_email):
     return status
 
 
-def cancel_booking(booking_id):
+def cancel_booking(booking_id, class_id=None):
     with closing(connect()) as conn:
         cursor = conn.cursor(as_dict=True)
-        cursor.execute(
-            "SELECT class_id, status FROM bookings WITH (UPDLOCK) WHERE id = %s",
-            (booking_id,),
-        )
+        query = "SELECT class_id, status FROM bookings WITH (UPDLOCK) WHERE id = %s"
+        params = (booking_id,)
+        if class_id is not None:
+            query += " AND class_id = %s"
+            params = (booking_id, class_id)
+        cursor.execute(query, params)
         booking = cursor.fetchone()
         if booking is None or booking["status"] == "cancelled":
             raise ValueError("Booking not found or already cancelled")
