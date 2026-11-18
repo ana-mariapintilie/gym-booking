@@ -68,8 +68,10 @@ def stack_is_up():
 
 
 def test_both_services_report_healthy():
-    assert get_json(f"{SCHEDULE}/health") == {"status": "ok"}
-    assert get_json(f"{BOOKINGS}/health") == {"status": "ok"}
+    for url in (SCHEDULE, BOOKINGS):
+        body = get_json(f"{url}/health")
+        assert body["status"] == "ok"
+        assert body["db"] == "ok"
 
 
 def test_bookings_uses_capacity_from_the_schedule_service():

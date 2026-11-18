@@ -15,10 +15,11 @@ def make_class(name="Yoga", capacity=10):
     return service.create_class(name, "Marta", "2026-10-10 18:00", 60, capacity)
 
 
-def test_health_is_ok_when_the_database_answers(client):
+def test_health_is_ok_when_the_database_answers(client, monkeypatch):
+    monkeypatch.setenv("GIT_SHA", "abc123")
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.get_json() == {"status": "ok"}
+    assert response.get_json() == {"status": "ok", "db": "ok", "version": "abc123"}
 
 
 def test_health_is_503_when_the_database_is_unreachable(client, monkeypatch):
