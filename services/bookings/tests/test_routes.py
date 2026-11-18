@@ -100,3 +100,15 @@ def test_cancel_route_shows_error_for_missing_booking(client):
     response = client.post("/classes/1/bookings/999/cancel")
     assert response.status_code == 400
     assert "Booking not found" in response.get_data(as_text=True)
+
+
+def test_cancel_route_refuses_a_booking_from_another_class(client, schedule):
+    schedule.classes[2] = {"id": 2, "name": "Yoga", "capacity": 5}
+    book(client, "Ana", "ana@test.com", class_id=2)
+    ana_id = service.list_bookings(2)[0]["id"]
+
+    response = client.post(f"/classes/1/bookings/{ana_id}/cancel")
+
+    assert response.status_code == 400
+    assert "Booking not found" in response.get_data(as_text=True)
+    assert service.list_bookings(2)[0]["status"] == "confirmed"
