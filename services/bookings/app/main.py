@@ -50,12 +50,20 @@ def home():
 
 @app.get("/health")
 def health():
+    version = os.environ.get("GIT_SHA", "dev")
     try:
         with closing(connect()) as conn:
-            conn.cursor().execute("SELECT 1")
+            cursor = conn.cursor()
+            # Proves this login can write: insert a row, then undo it.
+            cursor.execute(
+                "INSERT INTO schema_migrations (version, name) VALUES (-1, 'health check')"
+            )
+            conn.rollback()
+            cursor.execute("SELECT COUNT(*) FROM schema_migrations")
+            cursor.fetchone()
     except (pymssql.Error, KeyError):
-        return jsonify(status="unavailable"), 503
-    return jsonify(status="ok")
+        return jsonify(status="unavailable", db="unavailable", version=version), 503
+    return jsonify(status="ok", db="ok", version=version)
 
 
 @app.get("/classes/<int:class_id>/bookings")
