@@ -2,29 +2,22 @@ import os
 from contextlib import closing
 
 import pymssql
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, jsonify, request
 
 from app import service
+from app.cors import setup_cors
 from app.db import connect
 from app.migrate import migrate_on_startup
 from app.request_log import setup_logging
 
 app = Flask(__name__)
 setup_logging(app, "schedule")
-
-
-def render_classes(error=None, status_code=200):
-    return render_template(
-        "classes.html",
-        classes=service.list_classes(),
-        error=error,
-        bookings_url=os.environ.get("BOOKINGS_PUBLIC_URL", "http://localhost:8002"),
-    ), status_code
+setup_cors(app)
 
 
 @app.get("/")
 def home():
-    return redirect(url_for("classes_page"))
+    return jsonify(service="schedule", classes="/api/classes", health="/health")
 
 
 @app.get("/health")
@@ -45,27 +38,6 @@ def health():
     return jsonify(status="ok", db="ok", version=version)
 
 
-@app.get("/classes")
-def classes_page():
-    return render_classes()
-
-
-@app.post("/classes")
-def create_class_route():
-    try:
-        service.create_class(
-            request.form["name"],
-            request.form["instructor"],
-            request.form["starts_at"].replace("T", " "),
-            int(request.form["duration_minutes"]),
-            int(request.form["capacity"]),
-            request.form.get("room", "Main studio"),
-        )
-    except ValueError as error:
-        return render_classes(error=str(error), status_code=400)
-    return redirect(url_for("classes_page"))
-
-
 @app.get("/api/classes")
 def list_classes_api():
     return jsonify(service.list_classes())
@@ -77,6 +49,28 @@ def get_class_api(class_id):
     if found is None:
         return jsonify(error="Class not found"), 404
     return jsonify(found)
+
+
+@app.post("/api/classes")
+def create_class_api():
+    data = request.get_json(silent=True) or {}
+    try:
+        duration_minutes = int(data.get("duration_minutes"))
+        capacity = int(data.get("capacity"))
+    except (TypeError, ValueError):
+        return jsonify(error="Duration and capacity must be whole numbers"), 400
+    try:
+        class_id = service.create_class(
+            str(data.get("name", "")),
+            str(data.get("instructor", "")),
+            str(data.get("starts_at", "")).replace("T", " "),
+            duration_minutes,
+            capacity,
+            str(data.get("room") or "Main studio"),
+        )
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(service.get_class(class_id)), 201
 
 
 if __name__ == "__main__":

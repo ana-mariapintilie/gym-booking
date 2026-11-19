@@ -2,9 +2,10 @@ import os
 from contextlib import closing
 
 import pymssql
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, jsonify, request
 
-from app import schedule_client, service
+from app import service
+from app.cors import setup_cors
 from app.db import connect
 from app.migrate import migrate_on_startup
 from app.request_log import setup_logging
@@ -17,35 +18,12 @@ SCHEDULE_DOWN_MESSAGE = (
 
 app = Flask(__name__)
 setup_logging(app, "bookings")
-
-
-def schedule_public_url():
-    return os.environ.get("SCHEDULE_PUBLIC_URL", "http://localhost:8001")
-
-
-def render_page(class_id, error=None, status_code=200, schedule_down=False):
-    found = None
-    if not schedule_down:
-        try:
-            found = schedule_client.get_class(class_id)
-        except ScheduleUnavailable:
-            schedule_down = True
-    if found is None and not schedule_down and status_code == 200:
-        error, status_code = "Class not found", 404
-    return render_template(
-        "bookings.html",
-        class_id=class_id,
-        gym_class=found,
-        schedule_down=schedule_down,
-        bookings=service.list_bookings(class_id),
-        error=error,
-        schedule_url=schedule_public_url(),
-    ), status_code
+setup_cors(app)
 
 
 @app.get("/")
 def home():
-    return redirect(f"{schedule_public_url()}/classes")
+    return jsonify(service="bookings", bookings="/api/classes/<id>/bookings", health="/health")
 
 
 @app.get("/health")
@@ -66,37 +44,32 @@ def health():
     return jsonify(status="ok", db="ok", version=version)
 
 
-@app.get("/classes/<int:class_id>/bookings")
-def bookings_page(class_id):
-    return render_page(class_id)
-
-
-@app.post("/classes/<int:class_id>/bookings")
-def book_route(class_id):
-    try:
-        service.book_class(
-            class_id, request.form["member_name"], request.form["member_email"]
-        )
-    except ValueError as error:
-        return render_page(class_id, error=str(error), status_code=400)
-    except ScheduleUnavailable:
-        return render_page(class_id, error=SCHEDULE_DOWN_MESSAGE, status_code=503,
-                           schedule_down=True)
-    return redirect(url_for("bookings_page", class_id=class_id))
-
-
-@app.post("/classes/<int:class_id>/bookings/<int:booking_id>/cancel")
-def cancel_route(class_id, booking_id):
-    try:
-        service.cancel_booking(booking_id, class_id)
-    except ValueError as error:
-        return render_page(class_id, error=str(error), status_code=400)
-    return redirect(url_for("bookings_page", class_id=class_id))
-
-
 @app.get("/api/classes/<int:class_id>/bookings")
 def list_bookings_api(class_id):
     return jsonify(service.list_bookings(class_id))
+
+
+@app.post("/api/classes/<int:class_id>/bookings")
+def book_api(class_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        status = service.book_class(
+            class_id, str(data.get("member_name", "")), str(data.get("member_email", ""))
+        )
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    except ScheduleUnavailable:
+        return jsonify(error=SCHEDULE_DOWN_MESSAGE), 503
+    return jsonify(status=status), 201
+
+
+@app.post("/api/classes/<int:class_id>/bookings/<int:booking_id>/cancel")
+def cancel_api(class_id, booking_id):
+    try:
+        promoted_id = service.cancel_booking(booking_id, class_id)
+    except ValueError as error:
+        return jsonify(error=str(error)), 404
+    return jsonify(cancelled=booking_id, promoted=promoted_id)
 
 
 if __name__ == "__main__":
