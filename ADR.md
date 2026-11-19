@@ -39,3 +39,11 @@ Context: Right now anyone who opens the app can create classes, book a spot and 
 Decision: I didn't build authentication on purpose. Members identify themselves with a name and email when booking, and the classes page is not protected.
 Alternatives considered: Login with Flask-Login, a users table and hashed passwords. Rejected because it would be a third domain with its own data, add dependencies, and require handling passwords safely, which is more than the two domains this assignment is about and would take time away from tests and documentation.
 Consequences: Anyone with access could cancel someone else's booking or add classes, so the app should only run on the gym's internal network for now. Authentication could become its own service in Assignment 2, and bookings already store the member's email, which a future user account could link to.
+
+## 6. Splitting along the existing seam: bookings asks schedule over HTTP
+Date: 2026-11-18
+Status: Decided
+Context: Assignment 2 requires one service per domain, each with its own database. In Assignment 1 the only contact between the domains was get_class_capacity(class_id) (ADR-2), plus a foreign key from bookings.class_id to classes.id (ADR-3).
+Decision: The seam stays where ADR-2 put it. The schedule service owns classes and exposes GET /api/classes/<id>; the bookings service calls it server side from schedule_client.get_class() before every booking, with a 2-second timeout (SCHEDULE_TIMEOUT_SECONDS). If schedule is down, slow or answers with an error, booking returns 503 "Booking is paused" and saves nothing, while the bookings list and cancelling keep working because they only need the bookings database.
+Alternatives considered: Letting the UI call both services and pass the capacity to bookings, rejected because a browser could then send any capacity and overbook a class; the capacity must come from schedule, server side. Retrying the call to schedule, rejected because a member waiting several seconds is worse than a clear "try again in a minute".
+Consequences: ADR-2 held: only one call crosses the seam, so the split needed no redesign. The cost is that booking now depends on schedule being up, and that the bookings page shows the class name only when schedule answers.
