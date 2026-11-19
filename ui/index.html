@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gym classes</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="classes">
+  <main>
+    <h1>Gym classes</h1>
+    <p id="classes-message" class="message" hidden></p>
+
+    <table id="classes">
+      <thead>
+        <tr>
+          <th>Class</th><th>Instructor</th><th>Room</th><th>Starts</th>
+          <th>Minutes</th><th>Capacity</th><th>Bookings</th>
+        </tr>
+      </thead>
+      <tbody><tr><td colspan="7">Loading…</td></tr></tbody>
+    </table>
+
+    <h2>Add a class</h2>
+    <form id="add-class">
+      <input name="name" placeholder="Class name" required>
+      <input name="instructor" placeholder="Instructor" required>
+      <input name="room" value="Main studio" required>
+      <input type="datetime-local" name="starts_at" required>
+      <input type="number" name="duration_minutes" value="60" min="1" required>
+      <input type="number" name="capacity" value="15" min="1" required>
+      <button type="submit">Add class</button>
+    </form>
+    <p id="add-class-message" class="message" hidden></p>
+  </main>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

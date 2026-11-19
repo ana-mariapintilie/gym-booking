@@ -5,44 +5,49 @@ import subprocess
 import time
 import uuid
 from urllib.error import HTTPError
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pytest
 
 SCHEDULE = os.environ.get("SCHEDULE_BASE_URL", "http://localhost:8001")
 BOOKINGS = os.environ.get("BOOKINGS_BASE_URL", "http://localhost:8002")
+UI = os.environ.get("UI_BASE_URL", "http://localhost:8080")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def call(method, url, form=None):
-    data = urlencode(form).encode() if form else None
+def call(method, url, body=None, headers=None):
+    """Returns (status, parsed JSON or None, response headers)."""
+    data = json.dumps(body).encode() if body is not None else None
+    headers = dict(headers or {})
+    if body is not None:
+        headers["Content-Type"] = "application/json"
     try:
-        with urlopen(Request(url, data=data, method=method), timeout=10) as response:
-            return response.status, response.read().decode()
+        with urlopen(Request(url, data=data, method=method, headers=headers), timeout=10) as r:
+            raw = r.read()
+            return r.status, json.loads(raw) if raw else None, r.headers
     except HTTPError as error:
-        return error.code, error.read().decode()
-
-
-def get_json(url):
-    status, body = call("GET", url)
-    assert status == 200, body
-    return json.loads(body)
+        raw = error.read()
+        return error.code, json.loads(raw) if raw else None, error.headers
 
 
 def create_class(capacity):
-    name = f"Integration {uuid.uuid4().hex[:8]}"
-    status, _ = call("POST", f"{SCHEDULE}/classes", {
-        "name": name, "instructor": "Test", "starts_at": "2026-12-01T09:00",
-        "duration_minutes": "45", "capacity": str(capacity),
+    status, body, _ = call("POST", f"{SCHEDULE}/api/classes", {
+        "name": f"Integration {uuid.uuid4().hex[:8]}", "instructor": "Test",
+        "starts_at": "2026-12-01T09:00", "duration_minutes": 45, "capacity": capacity,
     })
-    assert status == 200  # urllib followed the redirect to /classes
-    return next(c["id"] for c in get_json(f"{SCHEDULE}/api/classes") if c["name"] == name)
+    assert status == 201, body
+    return body["id"]
 
 
 def book(class_id, email):
-    return call("POST", f"{BOOKINGS}/classes/{class_id}/bookings",
+    return call("POST", f"{BOOKINGS}/api/classes/{class_id}/bookings",
                 {"member_name": email.split("@")[0], "member_email": email})
+
+
+def list_bookings(class_id):
+    status, body, _ = call("GET", f"{BOOKINGS}/api/classes/{class_id}/bookings")
+    assert status == 200, body
+    return body
 
 
 def compose(*args):
@@ -69,32 +74,29 @@ def stack_is_up():
 
 def test_both_services_report_healthy():
     for url in (SCHEDULE, BOOKINGS):
-        body = get_json(f"{url}/health")
-        assert body["status"] == "ok"
-        assert body["db"] == "ok"
+        status, body, _ = call("GET", f"{url}/health")
+        assert status == 200
+        assert (body["status"], body["db"]) == ("ok", "ok")
+
+
+def test_ui_is_served_and_both_services_allow_its_origin():
+    with urlopen(f"{UI}/", timeout=10) as response:
+        assert "Gym classes" in response.read().decode()
+    for url in (SCHEDULE, BOOKINGS):
+        headers = call("GET", f"{url}/health", headers={"Origin": UI})[2]
+        assert headers["Access-Control-Allow-Origin"] == UI
 
 
 def test_bookings_uses_capacity_from_the_schedule_service():
     class_id = create_class(capacity=1)
 
-    assert book(class_id, "first@test.com")[0] == 200
-    assert book(class_id, "second@test.com")[0] == 200
-
-    bookings = get_json(f"{BOOKINGS}/api/classes/{class_id}/bookings")
-    assert [b["status"] for b in bookings] == ["confirmed", "waitlisted"]
-
-
-def test_bookings_page_shows_class_name_fetched_from_schedule():
-    class_id = create_class(capacity=3)
-    status, page = call("GET", f"{BOOKINGS}/classes/{class_id}/bookings")
-    assert status == 200
-    assert "Integration" in page
+    assert book(class_id, "first@test.com")[:2] == (201, {"status": "confirmed"})
+    assert book(class_id, "second@test.com")[:2] == (201, {"status": "waitlisted"})
+    assert [b["status"] for b in list_bookings(class_id)] == ["confirmed", "waitlisted"]
 
 
 def test_class_unknown_to_schedule_cannot_be_booked():
-    status, page = book(999999, "ghost@test.com")
-    assert status == 400
-    assert "Class not found" in page
+    assert book(999999, "ghost@test.com")[:2] == (400, {"error": "Class not found"})
 
 
 def test_booking_fails_fast_and_cleanly_while_schedule_is_down():
@@ -102,14 +104,13 @@ def test_booking_fails_fast_and_cleanly_while_schedule_is_down():
     compose("stop", "schedule")
     try:
         started = time.monotonic()
-        status, page = book(class_id, "during-outage@test.com")
+        status, body, _ = book(class_id, "during-outage@test.com")
         assert status == 503
-        assert "Booking is paused" in page
+        assert "Booking is paused" in body["error"]
         assert time.monotonic() - started < 5
-        assert get_json(f"{BOOKINGS}/api/classes/{class_id}/bookings") == []
-        assert call("GET", f"{BOOKINGS}/classes/{class_id}/bookings")[0] == 200
+        assert list_bookings(class_id) == []
     finally:
         compose("start", "schedule")
         wait_until_healthy(SCHEDULE)
 
-    assert book(class_id, "after-outage@test.com")[0] == 200
+    assert book(class_id, "after-outage@test.com")[0] == 201

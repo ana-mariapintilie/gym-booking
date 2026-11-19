@@ -17,7 +17,7 @@ The split into two services, each with its own Dockerfile, requirements and migr
 
 **When schedule is down or slow** (2 s timeout, `SCHEDULE_TIMEOUT_SECONDS`):
 - Booking returns **503** with "Booking is paused…", and nothing is saved.
-- The bookings page still loads (200) and shows the existing bookings, with a notice that class details are unavailable.
+- The bookings list still loads (200): the UI shows the existing bookings with a notice that class details are unavailable.
 - Cancelling and waitlist promotion keep working, because they only need the bookings database.
 
 ## Run it with Docker Compose
@@ -30,13 +30,15 @@ cd gym-booking
 docker compose up --build
 ```
 
-- Classes: http://localhost:8001/classes
-- Bookings: follow "View" on a class, or http://localhost:8002/classes/1/bookings
-- Health: http://localhost:8001/health and http://localhost:8002/health (200 `{"status":"ok"}`, or 503 when the service's database is unreachable)
+- UI: http://localhost:8080 (static files in `ui/`, served by a stock `nginx` image; "View" on a class opens its bookings)
+- APIs: http://localhost:8001/api/classes (schedule) and http://localhost:8002/api/classes/1/bookings (bookings)
+- Health: http://localhost:8001/health and http://localhost:8002/health (200 `{"status":"ok","db":"ok","version":"dev"}`, or 503 when the service can't read and write its own database)
+
+The UI finds the services through `ui/config.js` (`scheduleUrl`, `bookingsUrl`); the deploy pipeline replaces that file with the Azure URLs. Each service only answers cross-origin requests from `CORS_ORIGINS`.
 
 Startup order: `mssql` becomes healthy → `db-init` creates the `schedule` and `bookings` databases and one login for each (`db/init.sql`) and exits → both services apply their pending migrations and start. Bookings deliberately does not wait for schedule.
 
-Each service logs one line per request, e.g. `INFO bookings POST /classes/1/bookings 302 38ms` (`docker compose logs -f bookings`).
+Each service logs one line per request, e.g. `INFO bookings POST /api/classes/1/bookings 201 38ms` (`docker compose logs -f bookings`).
 
 To start over with empty databases: `docker compose down -v`.
 
@@ -52,7 +54,8 @@ Compose has development defaults, so no `.env` is needed locally. Override them 
 | `PORT` | each service | `8000` | Port inside the container |
 | `SCHEDULE_URL` | bookings | `http://schedule:8000` | Where bookings calls schedule (server-side) |
 | `SCHEDULE_TIMEOUT_SECONDS` | bookings | `2` | Timeout for that call |
-| `SCHEDULE_PUBLIC_URL` / `BOOKINGS_PUBLIC_URL` | bookings / schedule | `http://localhost:8001` / `:8002` | Browser links between the two UIs |
+| `CORS_ORIGINS` | each service | `http://localhost:8080` | The UI origin(s) allowed to call the service from a browser (comma-separated) |
+| `GIT_SHA` | each service | `dev` | Version reported by `/health` (the pipeline sets the commit SHA) |
 
 ## Database migrations
 

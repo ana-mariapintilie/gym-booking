@@ -49,7 +49,7 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: mssql://schedule_user:${SCHEDULE_DB_PASSWORD:-ScheduleDev2026}@mssql:1433/schedule
-      BOOKINGS_PUBLIC_URL: http://localhost:8002
+      CORS_ORIGINS: http://localhost:8080
     ports:
       - "8001:8000"
 
@@ -63,10 +63,19 @@ services:
     environment:
       DATABASE_URL: mssql://bookings_user:${BOOKINGS_DB_PASSWORD:-BookingsDev2026}@mssql:1433/bookings
       SCHEDULE_URL: http://schedule:8000
-      SCHEDULE_PUBLIC_URL: http://localhost:8001
+      CORS_ORIGINS: http://localhost:8080
       SCHEDULE_TIMEOUT_SECONDS: "2"
     ports:
       - "8002:8000"
+
+  # The static UI: a stock nginx image serving the ui/ folder. Not a service
+  # container (no Dockerfile); on Azure the same files go to a Storage static website.
+  ui:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./ui:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
 
 volumes:
   mssql-data:

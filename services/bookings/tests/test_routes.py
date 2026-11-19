@@ -7,8 +7,7 @@ from app.main import app
 
 
 @pytest.fixture
-def client(schedule, monkeypatch):
-    monkeypatch.setenv("SCHEDULE_PUBLIC_URL", "http://schedule.test")
+def client(schedule):
     schedule.classes[1] = {
         "id": 1, "name": "Spinning", "instructor": "Leo", "starts_at": "2026-10-13 18:00",
         "room": "Main studio", "capacity": 1,
@@ -17,8 +16,8 @@ def client(schedule, monkeypatch):
 
 
 def book(client, name="Ana", email="ana@test.com", class_id=1):
-    return client.post(f"/classes/{class_id}/bookings",
-                       data={"member_name": name, "member_email": email})
+    return client.post(f"/api/classes/{class_id}/bookings",
+                       json={"member_name": name, "member_email": email})
 
 
 def test_health_is_ok_when_the_database_answers(client, monkeypatch):
@@ -40,76 +39,86 @@ def test_every_request_is_logged_with_method_path_and_status(client, caplog):
         client.get("/health")
         book(client, email="bad")
     assert "GET /health 200" in caplog.text
-    assert "POST /classes/1/bookings 400" in caplog.text
+    assert "POST /api/classes/1/bookings 400" in caplog.text
 
 
-def test_home_redirects_to_the_schedule(client):
-    assert client.get("/").headers["Location"] == "http://schedule.test/classes"
+def test_home_names_the_service(client):
+    assert client.get("/").get_json()["service"] == "bookings"
 
 
-def test_page_shows_class_details_from_schedule(client):
-    page = client.get("/classes/1/bookings").get_data(as_text=True)
-    assert "Spinning with Leo" in page
-    assert "http://schedule.test/classes" in page
+def test_booking_returns_201_and_waitlists_when_full(client):
+    first = book(client, "Ana", "ana@test.com")
+    second = book(client, "Luis", "luis@test.com")
+    assert (first.status_code, first.get_json()) == (201, {"status": "confirmed"})
+    assert (second.status_code, second.get_json()) == (201, {"status": "waitlisted"})
 
 
-def test_page_for_unknown_class_is_404(client):
-    response = client.get("/classes/999/bookings")
-    assert response.status_code == 404
-    assert "Class not found" in response.get_data(as_text=True)
-
-
-def test_booking_redirects_and_is_listed(client):
-    assert book(client).status_code == 302
-    assert client.get("/api/classes/1/bookings").get_json()[0]["status"] == "confirmed"
-
-
-def test_booking_error_is_shown(client):
-    response = book(client, name=" ")
-    assert response.status_code == 400
-    assert "Name is required" in response.get_data(as_text=True)
-
-
-def test_page_still_works_when_schedule_is_down(client, schedule):
+def test_bookings_are_listed(client):
     book(client)
-    schedule.down = True
-    response = client.get("/classes/1/bookings")
-    page = response.get_data(as_text=True)
-    assert response.status_code == 200
-    assert "Class details are temporarily unavailable" in page
-    assert "ana@test.com" in page
+    listed = client.get("/api/classes/1/bookings").get_json()
+    assert [(b["member_email"], b["status"]) for b in listed] == [("ana@test.com", "confirmed")]
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [({"name": " "}, "Name is required"), ({"class_id": 999}, "Class not found")],
+)
+def test_booking_errors_are_400_with_a_message(client, kwargs, message):
+    response = book(client, **kwargs)
+    assert response.status_code == 400
+    assert response.get_json() == {"error": message}
+
+
+def test_booking_without_a_json_body_is_400(client):
+    response = client.post("/api/classes/1/bookings", data="not json")
+    assert response.status_code == 400
 
 
 def test_booking_when_schedule_is_down_fails_gracefully(client, schedule):
     schedule.down = True
     response = book(client)
     assert response.status_code == 503
-    assert "Booking is paused" in response.get_data(as_text=True)
+    assert "Booking is paused" in response.get_json()["error"]
     assert service.list_bookings(1) == []
 
 
-def test_cancel_route_promotes_and_redirects(client):
+def test_bookings_are_still_listed_when_schedule_is_down(client, schedule):
+    book(client)
+    schedule.down = True
+    response = client.get("/api/classes/1/bookings")
+    assert response.status_code == 200
+    assert response.get_json()[0]["member_email"] == "ana@test.com"
+
+
+def test_cancel_returns_who_was_promoted(client):
     book(client, "Ana", "ana@test.com")
     book(client, "Luis", "luis@test.com")
-    ana_id = service.list_bookings(1)[0]["id"]
-    response = client.post(f"/classes/1/bookings/{ana_id}/cancel")
-    assert response.status_code == 302
-    assert service.list_bookings(1)[1]["status"] == "confirmed"
+    ana_id, luis_id = (b["id"] for b in service.list_bookings(1))
+    response = client.post(f"/api/classes/1/bookings/{ana_id}/cancel")
+    assert response.status_code == 200
+    assert response.get_json() == {"cancelled": ana_id, "promoted": luis_id}
 
 
-def test_cancel_route_shows_error_for_missing_booking(client):
-    response = client.post("/classes/1/bookings/999/cancel")
-    assert response.status_code == 400
-    assert "Booking not found" in response.get_data(as_text=True)
+def test_cancel_missing_booking_is_404(client):
+    response = client.post("/api/classes/1/bookings/999/cancel")
+    assert response.status_code == 404
+    assert "Booking not found" in response.get_json()["error"]
 
 
-def test_cancel_route_refuses_a_booking_from_another_class(client, schedule):
+def test_cancel_refuses_a_booking_from_another_class(client, schedule):
     schedule.classes[2] = {"id": 2, "name": "Yoga", "capacity": 5}
     book(client, "Ana", "ana@test.com", class_id=2)
     ana_id = service.list_bookings(2)[0]["id"]
 
-    response = client.post(f"/classes/1/bookings/{ana_id}/cancel")
+    response = client.post(f"/api/classes/1/bookings/{ana_id}/cancel")
 
-    assert response.status_code == 400
-    assert "Booking not found" in response.get_data(as_text=True)
+    assert response.status_code == 404
     assert service.list_bookings(2)[0]["status"] == "confirmed"
+
+
+def test_cors_header_is_only_sent_to_the_ui_origin(client, monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "http://ui.test")
+    allowed = client.get("/health", headers={"Origin": "http://ui.test"})
+    other = client.get("/health", headers={"Origin": "http://evil.test"})
+    assert allowed.headers["Access-Control-Allow-Origin"] == "http://ui.test"
+    assert "Access-Control-Allow-Origin" not in other.headers
