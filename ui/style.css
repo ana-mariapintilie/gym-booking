@@ -1,0 +1,24 @@
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1d1d1f;
+  background: #f6f6f4;
+}
+main { max-width: 880px; margin: 0 auto; padding: 24px 16px; }
+h1 { margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; background: #fff; margin: 16px 0; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e3e3e0; }
+th { font-size: 0.85rem; color: #555; }
+form { display: flex; flex-wrap: wrap; gap: 8px; }
+input { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+button { padding: 6px 12px; border: 0; border-radius: 6px; background: #2f5d50; color: #fff; font: inherit; cursor: pointer; }
+button.secondary { background: #e8e8e5; color: #1d1d1f; }
+a { color: #2f5d50; }
+.message { padding: 8px 12px; border-radius: 6px; }
+.message.ok { background: #e6f2ec; }
+.message.error { background: #fbe9e7; color: #8a1c0f; }
+.message.warn { background: #fff4d6; }
+.status { padding: 2px 8px; border-radius: 10px; font-size: 0.85rem; }
+.status.confirmed { background: #e6f2ec; }
+.status.waitlisted { background: #fff4d6; }
+.status.cancelled { background: #eee; color: #777; }
