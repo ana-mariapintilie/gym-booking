@@ -1,0 +1,104 @@
+name: CD
+
+# Every push to main: run all of CI first, then deploy the images CI just pushed.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write   # CI pushes the images to GHCR
+  id-token: write   # azure/login signs in with OpenID Connect, no password
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    env:
+      PREFIX: ${{ vars.PREFIX }}
+      RG: ${{ vars.RESOURCE_GROUP }}
+      UI_STORAGE: ${{ vars.UI_STORAGE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Look up names and addresses
+        run: |
+          echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "SQL_HOST=$PREFIX-sql.database.windows.net" >> "$GITHUB_ENV"
+          web=$(az storage account show -n "$UI_STORAGE" -g "$RG" --query primaryEndpoints.web -o tsv)
+          echo "UI_ORIGIN=${web%/}" >> "$GITHUB_ENV"
+          for svc in schedule bookings; do
+            fqdn=$(az containerapp show -n "$PREFIX-$svc" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)
+            echo "${svc^^}_FQDN=$fqdn" >> "$GITHUB_ENV"
+          done
+
+      - name: Deploy schedule
+        env:
+          DB_PASSWORD: ${{ secrets.SCHEDULE_DB_PASSWORD }}
+        run: |
+          az containerapp secret set -n "$PREFIX-schedule" -g "$RG" -o none \
+            --secrets "database-url=mssql://schedule_user:$DB_PASSWORD@$SQL_HOST:1433/$PREFIX-schedule-db"
+          az containerapp update -n "$PREFIX-schedule" -g "$RG" -o none \
+            --image "$IMAGE_BASE-schedule:$GITHUB_SHA" \
+            --min-replicas 0 --max-replicas 1 \
+            --set-env-vars DATABASE_URL=secretref:database-url PORT=8000 \
+              CORS_ORIGINS="$UI_ORIGIN" GIT_SHA="$GITHUB_SHA"
+
+      - name: Deploy bookings
+        env:
+          DB_PASSWORD: ${{ secrets.BOOKINGS_DB_PASSWORD }}
+        run: |
+          az containerapp secret set -n "$PREFIX-bookings" -g "$RG" -o none \
+            --secrets "database-url=mssql://bookings_user:$DB_PASSWORD@$SQL_HOST:1433/$PREFIX-bookings-db"
+          az containerapp update -n "$PREFIX-bookings" -g "$RG" -o none \
+            --image "$IMAGE_BASE-bookings:$GITHUB_SHA" \
+            --min-replicas 0 --max-replicas 1 \
+            --set-env-vars DATABASE_URL=secretref:database-url PORT=8000 \
+              CORS_ORIGINS="$UI_ORIGIN" GIT_SHA="$GITHUB_SHA" \
+              SCHEDULE_URL="https://$SCHEDULE_FQDN" SCHEDULE_TIMEOUT_SECONDS=2
+
+      - name: Deploy the UI with the services' addresses
+        run: |
+          cat > ui/config.js <<CONFIG
+          // Written by the CD workflow for commit $GITHUB_SHA.
+          window.GYM_CONFIG = {
+            scheduleUrl: "https://$SCHEDULE_FQDN",
+            bookingsUrl: "https://$BOOKINGS_FQDN",
+          };
+          CONFIG
+          az storage blob upload-batch --account-name "$UI_STORAGE" --auth-mode key \
+            --destination '$web' --source ui --overwrite -o none
+          echo "UI: $UI_ORIGIN"
+
+      - name: Wait until both services report this version as healthy
+        run: |
+          # A cold start may also have to wait for the database to resume (up to ~1 min)
+          # and to run migrations, so allow about 6 minutes in total.
+          for svc in schedule bookings; do
+            fqdn_var="${svc^^}_FQDN"
+            url="https://${!fqdn_var}/health"
+            for attempt in $(seq 1 36); do
+              body=$(curl -s --max-time 30 "$url" || true)
+              if [ "$(echo "$body" | jq -r '.status + " " + .version' 2>/dev/null)" = "ok $GITHUB_SHA" ]; then
+                echo "$svc healthy: $body"
+                continue 2
+              fi
+              echo "$svc not ready yet (attempt $attempt/36): ${body:-no answer}"
+              sleep 10
+            done
+            echo "::error::$svc did not become healthy at $url"
+            exit 1
+          done

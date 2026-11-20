@@ -70,8 +70,9 @@ def apply_migrations(conn, directory=MIGRATIONS_DIR):
     return applied
 
 
-def migrate_on_startup(attempts=20, delay_seconds=3):
-    """The database container may still be starting, so retry the connection."""
+def migrate_on_startup(attempts=40, delay_seconds=3):
+    """The database may still be starting (compose) or resuming from pause (Azure SQL
+    serverless, up to about a minute), so retry the connection for about two minutes."""
     for attempt in range(1, attempts + 1):
         try:
             with closing(connect()) as conn:
