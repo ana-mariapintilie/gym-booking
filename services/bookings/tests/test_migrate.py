@@ -16,9 +16,9 @@ def versions(conn):
 
 def test_fresh_database_gets_every_migration_once(empty_db_url):
     with closing(connect(empty_db_url)) as conn:
-        assert migrate.apply_migrations(conn) == [1, 2]
+        assert migrate.apply_migrations(conn) == [1, 2, 3]
         assert migrate.apply_migrations(conn) == []
-        assert versions(conn) == [1, 2]
+        assert versions(conn) == [1, 2, 3]
 
 
 def test_unique_index_keeps_existing_bookings(empty_db_url, tmp_path):
@@ -35,7 +35,7 @@ def test_unique_index_keeps_existing_bookings(empty_db_url, tmp_path):
         )
         conn.commit()
 
-        assert migrate.apply_migrations(conn) == [2]
+        assert migrate.apply_migrations(conn) == [2, 3]
 
         cursor = conn.cursor(as_dict=True)
         cursor.execute("SELECT member_name, status FROM bookings ORDER BY id")
@@ -50,6 +50,34 @@ def test_unique_index_keeps_existing_bookings(empty_db_url, tmp_path):
                 "VALUES (1, 'Ana', 'ana@test.com', 'waitlisted')"
             )
         conn.rollback()
+
+
+def test_status_changed_at_is_backfilled_for_existing_bookings(empty_db_url, tmp_path):
+    old = tmp_path / "old"
+    old.mkdir()
+    for name in ("0001_create_bookings.sql", "0002_one_active_booking_per_member.sql"):
+        shutil.copy(migrate.MIGRATIONS_DIR / name, old)
+    with closing(connect(empty_db_url)) as conn:
+        migrate.apply_migrations(conn, old)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO bookings (class_id, member_name, member_email, status, created_at) "
+            "VALUES (5, 'Ana', 'ana@test.com', 'confirmed', '2026-11-20 22:10:20'), "
+            "(5, 'Luis', 'luis@test.com', 'waitlisted', '2026-11-20 22:10:48')"
+        )
+        conn.commit()
+
+        assert migrate.apply_migrations(conn) == [3]
+
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute(
+            "SELECT member_name, status, created_at, status_changed_at FROM bookings ORDER BY id"
+        )
+        rows = cursor.fetchall()
+        assert [(r["member_name"], r["status"]) for r in rows] == [
+            ("Ana", "confirmed"), ("Luis", "waitlisted"),
+        ]
+        assert all(r["status_changed_at"] == r["created_at"] for r in rows)
 
 
 def test_failing_migration_is_rolled_back_and_not_recorded(empty_db_url, tmp_path):
@@ -83,7 +111,7 @@ def test_startup_retries_until_the_database_is_ready(monkeypatch, empty_db_url):
         return connect()
 
     monkeypatch.setattr(migrate, "connect", flaky_connect)
-    assert migrate.migrate_on_startup(attempts=3, delay_seconds=0) == [1, 2]
+    assert migrate.migrate_on_startup(attempts=3, delay_seconds=0) == [1, 2, 3]
 
 
 def test_startup_gives_up_after_the_last_attempt(monkeypatch):

@@ -158,15 +158,15 @@ async function loadBookings() {
   try {
     const bookings = await api(CONFIG.bookingsUrl, `/api/classes/${classId}/bookings`);
     if (bookings.length === 0) {
-      tbody.replaceChildren(emptyRow(5, "No bookings yet."));
+      tbody.replaceChildren(emptyRow(6, "No bookings yet."));
       return;
     }
     tbody.replaceChildren(...bookings.map((b) => row([
-      b.member_name, b.member_email, statusBadge(b.status), b.created_at,
+      b.member_name, b.member_email, statusBadge(b.status), b.created_at, b.status_changed_at,
       b.status === "cancelled" ? "" : cancelButton(b),
     ])));
   } catch (error) {
-    tbody.replaceChildren(emptyRow(5, "Bookings could not be loaded."));
+    tbody.replaceChildren(emptyRow(6, "Bookings could not be loaded."));
     showMessage(document.getElementById("bookings-message"), error.message, "error");
   }
 }

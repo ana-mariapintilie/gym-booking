@@ -69,7 +69,11 @@ def cancel_booking(booking_id, class_id=None):
         if booking is None or booking["status"] == "cancelled":
             raise ValueError("Booking not found or already cancelled")
 
-        cursor.execute("UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
+        cursor.execute(
+            "UPDATE bookings SET status = 'cancelled', status_changed_at = GETDATE() "
+            "WHERE id = %s",
+            (booking_id,),
+        )
 
         promoted_id = None
         if booking["status"] == "confirmed":
@@ -82,7 +86,9 @@ def cancel_booking(booking_id, class_id=None):
             if next_in_line is not None:
                 promoted_id = next_in_line["id"]
                 cursor.execute(
-                    "UPDATE bookings SET status = 'confirmed' WHERE id = %s", (promoted_id,)
+                    "UPDATE bookings SET status = 'confirmed', status_changed_at = GETDATE() "
+                    "WHERE id = %s",
+                    (promoted_id,),
                 )
         conn.commit()
     return promoted_id
@@ -92,11 +98,13 @@ def list_bookings(class_id):
     with closing(connect()) as conn:
         cursor = conn.cursor(as_dict=True)
         cursor.execute(
-            "SELECT id, class_id, member_name, member_email, status, created_at "
+            "SELECT id, class_id, member_name, member_email, status, created_at, "
+            "status_changed_at "
             "FROM bookings WHERE class_id = %s ORDER BY created_at, id",
             (class_id,),
         )
         rows = cursor.fetchall()
     for row in rows:
-        row["created_at"] = row["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+        for column in ("created_at", "status_changed_at"):
+            row[column] = row[column].strftime("%Y-%m-%d %H:%M:%S")
     return rows

@@ -1,6 +1,9 @@
+from contextlib import closing
+
 import pytest
 
 from app import service
+from app.db import connect
 from app.schedule_client import ScheduleUnavailable
 
 
@@ -119,3 +122,21 @@ def test_cancelling_twice_or_missing_booking_is_rejected(make_class):
         service.cancel_booking(ana_id)
     with pytest.raises(ValueError):
         service.cancel_booking(999)
+
+
+def test_cancel_and_promotion_update_status_changed_at(make_class):
+    class_id = make_class(capacity=1)
+    service.book_class(class_id, "Ana", "ana@test.com")
+    service.book_class(class_id, "Luis", "luis@test.com")
+    with closing(connect()) as conn:
+        conn.cursor().execute(
+            "UPDATE bookings SET status_changed_at = '2026-01-01 09:00:00'"
+        )
+        conn.commit()
+    ana_id = service.list_bookings(class_id)[0]["id"]
+
+    service.cancel_booking(ana_id)
+
+    changed = {b["member_email"]: b["status_changed_at"] for b in service.list_bookings(class_id)}
+    assert changed["ana@test.com"] > "2026-01-01 09:00:00"
+    assert changed["luis@test.com"] > "2026-01-01 09:00:00"
