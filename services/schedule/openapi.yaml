@@ -1,0 +1,106 @@
+openapi: 3.0.3
+info:
+  title: Schedule service
+  version: 1.0.0
+  description: Owns gym classes. The bookings service calls GET /api/classes/{class_id} to check a class and its capacity.
+servers:
+  - url: http://localhost:8001
+    description: Docker Compose
+paths:
+  /health:
+    get:
+      summary: Service and database health
+      responses:
+        "200":
+          description: The service can read and write its database
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Health"}
+        "503":
+          description: The database cannot be reached
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Health"}
+  /api/classes:
+    get:
+      summary: List all classes, earliest first
+      responses:
+        "200":
+          description: All classes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Class"}
+    post:
+      summary: Create a class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewClass"}
+      responses:
+        "201":
+          description: The class was created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Class"}
+        "400":
+          description: Missing or invalid field
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+  /api/classes/{class_id}:
+    get:
+      summary: Get one class
+      parameters:
+        - name: class_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: The class
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Class"}
+        "404":
+          description: No class with this id
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, db, version]
+      properties:
+        status: {type: string, enum: [ok, unavailable]}
+        db: {type: string, enum: [ok, unavailable]}
+        version: {type: string, description: "Git commit SHA of the running image, or dev locally"}
+    Class:
+      type: object
+      required: [id, name, instructor, starts_at, duration_minutes, capacity, room]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        instructor: {type: string}
+        starts_at: {type: string, example: "2026-12-01 18:00"}
+        duration_minutes: {type: integer, minimum: 1}
+        capacity: {type: integer, minimum: 1}
+        room: {type: string}
+    NewClass:
+      type: object
+      required: [name, instructor, starts_at, duration_minutes, capacity]
+      properties:
+        name: {type: string}
+        instructor: {type: string}
+        starts_at: {type: string, example: "2026-12-01T18:00"}
+        duration_minutes: {type: integer, minimum: 1}
+        capacity: {type: integer, minimum: 1}
+        room: {type: string, default: Main studio}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: {type: string}

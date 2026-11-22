@@ -1,0 +1,80 @@
+# Describes the whole system: services, configuration, calls between them and Azure resources.
+# Validated in CI against system.schema.json.
+student: apintilie.ieu2024
+prefix: apintilie-ieu2024
+public_url: https://apintilieieu2024ui.z1.web.core.windows.net
+
+ui:
+  path: ui/
+  storage_account: apintilieieu2024ui
+  calls: [schedule, bookings]
+
+azure:
+  resource_group: rg-apintilie-ieu2024
+  container_apps_environment: apintilie-ieu2024-env
+  sql_server: apintilie-ieu2024-sql
+  registry: ghcr.io/ana-mariapintilie
+
+services:
+  schedule:
+    description: Owns gym classes (name, instructor, start time, duration, capacity, room).
+    path: services/schedule
+    openapi: services/schedule/openapi.yaml
+    port_default: 8000
+    health: /health
+    migrations: services/schedule/migrations
+    env:
+      PORT:
+        description: Port the service listens on.
+        default: 8000
+      DATABASE_URL:
+        description: mssql://user:password@host:port/database for the schedule database.
+        secret: true
+      CORS_ORIGINS:
+        description: Comma-separated origins allowed to call the API from a browser (the UI).
+        default: ""
+      GIT_SHA:
+        description: Commit SHA of the deployed image, returned by /health as version.
+        default: dev
+    azure:
+      container_app: apintilie-ieu2024-schedule
+      sql_database: apintilie-ieu2024-schedule-db
+
+  bookings:
+    description: Owns bookings and the waitlist; checks each class with the schedule service before booking.
+    path: services/bookings
+    openapi: services/bookings/openapi.yaml
+    port_default: 8000
+    health: /health
+    migrations: services/bookings/migrations
+    env:
+      PORT:
+        description: Port the service listens on.
+        default: 8000
+      DATABASE_URL:
+        description: mssql://user:password@host:port/database for the bookings database.
+        secret: true
+      CORS_ORIGINS:
+        description: Comma-separated origins allowed to call the API from a browser (the UI).
+        default: ""
+      GIT_SHA:
+        description: Commit SHA of the deployed image, returned by /health as version.
+        default: dev
+      SCHEDULE_URL:
+        description: Base URL of the schedule service.
+        default: http://localhost:8001
+      SCHEDULE_TIMEOUT_SECONDS:
+        description: How long a booking waits for the schedule service before giving up.
+        default: 2
+    calls:
+      - service: schedule
+        url_env: SCHEDULE_URL
+        endpoints: ["GET /api/classes/{class_id}"]
+        timeout_s: 2
+        on_failure: >-
+          503 "Booking is paused because the class schedule can't be reached right now.
+          Nothing was saved. Please try again in a minute." Listing and cancelling
+          bookings keep working.
+    azure:
+      container_app: apintilie-ieu2024-bookings
+      sql_database: apintilie-ieu2024-bookings-db

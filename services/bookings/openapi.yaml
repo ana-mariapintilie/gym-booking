@@ -1,0 +1,125 @@
+openapi: 3.0.3
+info:
+  title: Bookings service
+  version: 1.0.0
+  description: Owns bookings and the waitlist. Before every booking it asks the schedule service for the class (2 s timeout).
+servers:
+  - url: http://localhost:8002
+    description: Docker Compose
+paths:
+  /health:
+    get:
+      summary: Service and database health
+      responses:
+        "200":
+          description: The service can read and write its database
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Health"}
+        "503":
+          description: The database cannot be reached
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Health"}
+  /api/classes/{class_id}/bookings:
+    parameters:
+      - $ref: "#/components/parameters/ClassId"
+    get:
+      summary: List the bookings of a class, oldest first
+      responses:
+        "200":
+          description: Bookings of the class (an empty list if there are none)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Booking"}
+    post:
+      summary: Book a spot; confirmed if there is room, otherwise waitlisted
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewBooking"}
+      responses:
+        "201":
+          description: The booking was saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [confirmed, waitlisted]}
+        "400":
+          description: Invalid input, unknown class, or this member already has an active booking
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503":
+          description: The schedule service is down or too slow; nothing was saved
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+  /api/classes/{class_id}/bookings/{booking_id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/ClassId"
+      - name: booking_id
+        in: path
+        required: true
+        schema: {type: integer}
+    post:
+      summary: Cancel a booking; the oldest waitlisted booking moves up if a confirmed spot was freed
+      responses:
+        "200":
+          description: The booking was cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cancelled, promoted]
+                properties:
+                  cancelled: {type: integer}
+                  promoted: {type: integer, nullable: true, description: "Id of the booking moved up from the waitlist, or null"}
+        "404":
+          description: No active booking with this id in this class
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+components:
+  parameters:
+    ClassId:
+      name: class_id
+      in: path
+      required: true
+      schema: {type: integer}
+  schemas:
+    Health:
+      type: object
+      required: [status, db, version]
+      properties:
+        status: {type: string, enum: [ok, unavailable]}
+        db: {type: string, enum: [ok, unavailable]}
+        version: {type: string, description: "Git commit SHA of the running image, or dev locally"}
+    Booking:
+      type: object
+      required: [id, class_id, member_name, member_email, status, created_at, status_changed_at]
+      properties:
+        id: {type: integer}
+        class_id: {type: integer}
+        member_name: {type: string}
+        member_email: {type: string}
+        status: {type: string, enum: [confirmed, waitlisted, cancelled]}
+        created_at: {type: string, example: "2026-11-20 22:10:20"}
+        status_changed_at: {type: string, example: "2026-11-20 22:10:20"}
+    NewBooking:
+      type: object
+      required: [member_name, member_email]
+      properties:
+        member_name: {type: string}
+        member_email: {type: string}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: {type: string}
